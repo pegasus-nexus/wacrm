@@ -429,34 +429,38 @@ export async function sendMessageToConversation(
   let waMessageId = '';
   let workingPhone = sanitizedPhone;
   try {
-    const variants = phoneVariants(sanitizedPhone);
-    let lastError: unknown = null;
+    if (isBaileys) {
+      waMessageId = await attempt(contact.phone || sanitizedPhone);
+    } else {
+      const variants = phoneVariants(sanitizedPhone);
+      let lastError: unknown = null;
 
-    for (const variant of variants) {
-      try {
-        waMessageId = await attempt(variant);
-        workingPhone = variant;
-        lastError = null;
-        break;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        if (!isRecipientNotAllowedError(message)) {
-          throw err;
+      for (const variant of variants) {
+        try {
+          waMessageId = await attempt(variant);
+          workingPhone = variant;
+          lastError = null;
+          break;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (!isRecipientNotAllowedError(message)) {
+            throw err;
+          }
+          lastError = err;
+          console.warn(
+            `[send-message] variant "${variant}" rejected by Meta, trying next…`
+          );
         }
-        lastError = err;
-        console.warn(
-          `[send-message] variant "${variant}" rejected by Meta, trying next…`
-        );
       }
-    }
 
-    if (lastError) throw lastError;
+      if (lastError) throw lastError;
+    }
   } catch (err) {
     const message =
       err instanceof Error ? err.message : 'Unknown WhatsApp API error';
     console.error('[send-message] WhatsApp send failed:', message);
     const providerName = isBaileys ? 'Baileys' : 'Meta API';
-    throw new SendMessageError('whatsapp_send_error', `${providerName} error: ${message}`, 502);
+    throw new SendMessageError('whatsapp_send_error', `${providerName} error: ${message}`, 500);
   }
 
   if (workingPhone !== sanitizedPhone) {
