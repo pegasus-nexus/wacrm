@@ -150,6 +150,14 @@ export async function POST(request: Request) {
       )
     }
 
+    // Broadcasts are not supported for Baileys connections
+    if (config.connection_type === 'baileys') {
+      return NextResponse.json(
+        { error: 'Broadcasts are not supported with Baileys connections. Use the inbox to send messages individually.' },
+        { status: 400 }
+      )
+    }
+
     const accessToken = decrypt(config.access_token)
 
     // Load the template row once so sendTemplateMessage can build

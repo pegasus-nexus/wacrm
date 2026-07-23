@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
 import { decrypt } from '@/lib/whatsapp/encryption'
 
+const BAILEYS_SECRET = process.env.BAILEYS_SECRET_TOKEN || 'wacrm-baileys-secret-key'
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ mediaId: string }> }
@@ -48,7 +50,7 @@ export async function GET(
       )
     }
 
-    // Fetch and decrypt WhatsApp config
+    // Fetch WhatsApp config
     const { data: config, error: configError } = await supabase
       .from('whatsapp_config')
       .select('*')
@@ -62,6 +64,44 @@ export async function GET(
       )
     }
 
+    // Baileys: proxy to the baileys-server media endpoint
+    if (config.connection_type === 'baileys') {
+      if (!config.baileys_server_url) {
+        return NextResponse.json(
+          { error: 'Baileys server URL not configured' },
+          { status: 400 }
+        )
+      }
+
+      const baileysUrl = config.baileys_server_url.replace(/\/+$/, '')
+      const mediaResponse = await fetch(`${baileysUrl}/api/media/${encodeURIComponent(mediaId)}`, {
+        headers: {
+          'x-baileys-secret': config.baileys_secret_token || BAILEYS_SECRET,
+        },
+      })
+
+      if (!mediaResponse.ok) {
+        const errText = await mediaResponse.text()
+        console.error('[media proxy] Baileys media fetch failed:', mediaResponse.status, errText)
+        return NextResponse.json(
+          { error: 'Failed to fetch media from Baileys' },
+          { status: mediaResponse.status }
+        )
+      }
+
+      const contentType = mediaResponse.headers.get('content-type') || 'application/octet-stream'
+      const buffer = Buffer.from(await mediaResponse.arrayBuffer())
+
+      return new Response(new Uint8Array(buffer), {
+        status: 200,
+        headers: {
+          'Content-Type': contentType,
+          'Cache-Control': 'public, max-age=86400',
+        },
+      })
+    }
+
+    // Meta: original flow
     const accessToken = decrypt(config.access_token)
 
     // Get the download URL from Meta

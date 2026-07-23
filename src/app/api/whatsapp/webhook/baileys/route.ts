@@ -274,6 +274,19 @@ export async function POST(request: Request) {
       const ALLOWED_TYPES = new Set(['text', 'image', 'document', 'audio', 'video', 'location', 'template', 'interactive']);
       const contentType = ALLOWED_TYPES.has(message.type) ? message.type : 'text';
 
+      // Resolve reply_to_message_id from Baileys quoted message context
+      let replyToMessageId: string | null = null;
+      if (message.quotedMessageId) {
+        const { data: quotedMsg } = await db
+          .from('messages')
+          .select('id')
+          .eq('message_id', message.quotedMessageId)
+          .maybeSingle();
+        if (quotedMsg) {
+          replyToMessageId = quotedMsg.id;
+        }
+      }
+
       const { data: insertedMsg, error: msgError } = await db
         .from('messages')
         .insert({
@@ -285,6 +298,7 @@ export async function POST(request: Request) {
           media_url: message.mediaUrl || null,
           message_id: message.id,
           status: isFromMe ? 'sent' : 'delivered',
+          reply_to_message_id: replyToMessageId,
         })
         .select('*')
         .single();

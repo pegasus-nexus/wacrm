@@ -69,6 +69,23 @@ export async function GET() {
     })
   }
 
+  // Baileys accounts don't use Meta tokens — return Baileys-specific status
+  if (config.connection_type === 'baileys') {
+    const baileysConnected = config.baileys_status === 'connected' || config.status === 'connected'
+    return NextResponse.json({
+      live: baileysConnected,
+      connection_type: 'baileys',
+      checks: {
+        config_exists: true,
+        token_decryptable: null,
+        phone_metadata_ok: baileysConnected,
+        waba_subscribed_to_app: null,
+        locally_marked_registered: baileysConnected,
+      },
+      errors: baileysConnected ? [] : ['Baileys session is not connected. Scan the QR code in Settings.'],
+    })
+  }
+
   let accessToken: string
   try {
     accessToken = decrypt(config.access_token)

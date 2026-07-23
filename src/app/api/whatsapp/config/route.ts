@@ -110,6 +110,19 @@ export async function GET() {
       )
     }
 
+    // Baileys accounts don't use Meta tokens — return Baileys-specific
+    // status so the Settings UI and inbox banner show accurate state.
+    if (config.connection_type === 'baileys') {
+      const baileysConnected = config.baileys_status === 'connected' || config.status === 'connected'
+      return NextResponse.json({
+        connected: baileysConnected,
+        connection_type: 'baileys',
+        baileys_status: config.baileys_status || 'disconnected',
+        baileys_phone_number: config.baileys_phone_number || null,
+        baileys_qr_code: config.baileys_qr_code || null,
+      })
+    }
+
     // Try to decrypt the stored token with the current ENCRYPTION_KEY.
     // If this fails, the key changed (or was never consistent across envs).
     let accessToken: string
