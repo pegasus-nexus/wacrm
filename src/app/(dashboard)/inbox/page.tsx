@@ -420,7 +420,25 @@ function InboxPageInner() {
 
   const handleConversationsLoaded = useCallback(
     (loaded: Conversation[]) => {
-      setConversations(loaded);
+      setConversations((prev) => {
+        // Shallow-compare to avoid unnecessary re-renders on resync.
+        // If lengths match and every row's id + last_message_at + unread_count
+        // are identical, keep the current reference.
+        if (
+          prev.length === loaded.length &&
+          prev.every(
+            (c, i) =>
+              c.id === loaded[i].id &&
+              c.last_message_at === loaded[i].last_message_at &&
+              c.unread_count === loaded[i].unread_count &&
+              c.status === loaded[i].status &&
+              c.last_message_text === loaded[i].last_message_text,
+          )
+        ) {
+          return prev;
+        }
+        return loaded;
+      });
       // Resolve a pending deep-link here rather than in an effect — this
       // is an event handler, so the setState calls below are allowed by
       // react-hooks/set-state-in-effect. Runs once per ?c=<id> URL value
@@ -521,7 +539,17 @@ function InboxPageInner() {
 
 
   const handleMessagesLoaded = useCallback((loaded: Message[]) => {
-    setMessages(loaded);
+    setMessages((prev) => {
+      // Shallow-compare: if same length and last message id matches,
+      // keep the current reference to avoid re-renders on resync.
+      if (
+        prev.length === loaded.length &&
+        (prev.length === 0 || prev[prev.length - 1].id === loaded[loaded.length - 1].id)
+      ) {
+        return prev;
+      }
+      return loaded;
+    });
   }, []);
 
   const handleNewMessage = useCallback((msg: Message) => {

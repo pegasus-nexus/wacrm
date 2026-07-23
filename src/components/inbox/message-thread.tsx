@@ -273,8 +273,10 @@ export function MessageThread({
   // (resyncToken bumps from reconnect / tab-focus / 5s interval), refetch
   // silently in the background without flashing the spinner.
   const hasLoadedForConvRef = useRef(false);
+  const isResyncRef = useRef(false);
   useEffect(() => {
     hasLoadedForConvRef.current = false;
+    isResyncRef.current = false;
   }, [conversationId]);
 
   // Fetch messages whenever the selected conversation changes. Kept
@@ -288,7 +290,12 @@ export function MessageThread({
     let cancelled = false;
 
     (async () => {
-      if (!hasLoadedForConvRef.current) setLoading(true);
+      if (!hasLoadedForConvRef.current) {
+        setLoading(true);
+        isResyncRef.current = false;
+      } else {
+        isResyncRef.current = true;
+      }
 
       const { data, error } = await supabase
         .from("messages")
@@ -339,7 +346,18 @@ export function MessageThread({
         console.error("Failed to fetch reactions:", error);
         return;
       }
-      setReactions((data as MessageReaction[]) ?? []);
+      const next = (data as MessageReaction[]) ?? [];
+      setReactions((prev) => {
+        // Shallow-compare: if same length and every id matches,
+        // keep the current reference to avoid re-renders on resync.
+        if (
+          prev.length === next.length &&
+          prev.every((r, i) => r.id === next[i].id && r.emoji === next[i].emoji)
+        ) {
+          return prev;
+        }
+        return next;
+      });
     })();
 
     return () => {
@@ -447,12 +465,15 @@ export function MessageThread({
       });
   }, [conversationId, hasUnread]);
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll to bottom only on initial load or when the user sends
+  // a message. Resyncs (resyncToken) must NOT auto-scroll because the
+  // user may have scrolled up to read earlier messages.
   useEffect(() => {
-    if (scrollRef.current) {
+    if (scrollRef.current && !isResyncRef.current) {
       const el = scrollRef.current;
       el.scrollTop = el.scrollHeight;
     }
+    isResyncRef.current = false;
   }, [messages]);
 
   const handleSend = useCallback(

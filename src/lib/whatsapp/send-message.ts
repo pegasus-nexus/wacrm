@@ -354,7 +354,7 @@ export async function sendMessageToConversation(
           mediaUrl,
           filename,
         },
-        config.baileys_secret_token
+        config.baileys_secret_token || undefined
       );
       return res.whatsappMessageId;
     }
