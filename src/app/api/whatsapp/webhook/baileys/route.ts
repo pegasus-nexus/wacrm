@@ -270,6 +270,19 @@ export async function POST(request: Request) {
           .eq('id', conversation.id);
       }
 
+      // Deduplicate: check if message with message.id already exists
+      if (message.id) {
+        const { data: existingMsg } = await db
+          .from('messages')
+          .select('id')
+          .eq('message_id', message.id)
+          .maybeSingle();
+
+        if (existingMsg) {
+          return NextResponse.json({ success: true, ignored: 'Duplicate message_id' });
+        }
+      }
+
       // Insert message
       const ALLOWED_TYPES = new Set(['text', 'image', 'document', 'audio', 'video', 'location', 'template', 'interactive']);
       const contentType = ALLOWED_TYPES.has(message.type) ? message.type : 'text';
