@@ -269,9 +269,9 @@ export interface MessageReaction {
 export interface WhatsAppConfig {
   id: string;
   user_id: string;
-  phone_number_id: string;
+  phone_number_id?: string;
   waba_id?: string;
-  access_token: string;
+  access_token?: string;
   verify_token?: string;
   status: 'connected' | 'disconnected';
   connected_at?: string;
@@ -285,6 +285,13 @@ export interface WhatsAppConfig {
   subscribed_apps_at?: string;
   /** Last error from /register; cleared on success. */
   last_registration_error?: string;
+  /** Baileys WhatsApp Web integration fields */
+  connection_type?: 'meta' | 'baileys';
+  baileys_server_url?: string;
+  baileys_status?: 'disconnected' | 'connecting' | 'qr_ready' | 'connected';
+  baileys_qr_code?: string;
+  baileys_phone_number?: string;
+  baileys_broadcast_delay_sec?: number;
 }
 
 // Raw Meta status enum. We persist this verbatim from Meta (sync + webhook)

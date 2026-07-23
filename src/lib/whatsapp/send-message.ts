@@ -36,6 +36,7 @@ import {
 } from '@/lib/whatsapp/interactive';
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
+import { sendBaileysMessage } from '@/lib/whatsapp/baileys-api';
 import {
   sanitizePhoneForMeta,
   isValidE164,
@@ -262,10 +263,22 @@ export async function sendMessageToConversation(
     );
   }
 
-  const accessToken = decrypt(config.access_token);
+  const isBaileys = config.connection_type === 'baileys';
+
+  if (isBaileys) {
+    if (!config.baileys_server_url) {
+      throw new SendMessageError(
+        'baileys_not_configured',
+        'Baileys server URL is missing. Please configure your Baileys server URL in Settings.',
+        400
+      );
+    }
+  }
+
+  const accessToken = config.access_token ? decrypt(config.access_token) : '';
 
   // Self-heal legacy CBC ciphertexts. Fire-and-forget; idempotent.
-  if (isLegacyFormat(config.access_token)) {
+  if (config.access_token && isLegacyFormat(config.access_token)) {
     void db
       .from('whatsapp_config')
       .update({ access_token: encrypt(accessToken) })
@@ -330,6 +343,15 @@ export async function sendMessageToConversation(
   }
 
   const attempt = async (phone: string): Promise<string> => {
+    if (isBaileys) {
+      const res = await sendBaileysMessage(config.baileys_server_url!, accountId, {
+        to: phone,
+        messageType,
+        contentText,
+        mediaUrl,
+      });
+      return res.whatsappMessageId;
+    }
     if (messageType === 'template') {
       const result = await sendTemplateMessage({
         phoneNumberId: config.phone_number_id,

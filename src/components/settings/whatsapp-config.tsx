@@ -29,6 +29,11 @@ import {
   AccordionTrigger,
   AccordionContent,
 } from '@/components/ui/accordion';
+import {
+  startBaileysSession,
+  getBaileysStatus,
+  disconnectBaileysSession,
+} from '@/lib/whatsapp/baileys-api';
 import type { WhatsAppConfig as WhatsAppConfigType } from '@/types';
 
 const MASKED_TOKEN = '••••••••••••••••';
@@ -70,6 +75,15 @@ export function WhatsAppConfig() {
   const [pin, setPin] = useState('');
   const [tokenEdited, setTokenEdited] = useState(false);
 
+  // Baileys state
+  const [connectionType, setConnectionType] = useState<'meta' | 'baileys'>('meta');
+  const [baileysServerUrl, setBaileysServerUrl] = useState('');
+  const [baileysBroadcastDelay, setBaileysBroadcastDelay] = useState(5);
+  const [baileysStatus, setBaileysStatus] = useState<'disconnected' | 'connecting' | 'qr_ready' | 'connected'>('disconnected');
+  const [baileysQrCode, setBaileysQrCode] = useState<string | null>(null);
+  const [baileysPhoneNumber, setBaileysPhoneNumber] = useState<string | null>(null);
+  const [startingBaileys, setStartingBaileys] = useState(false);
+
   // True once /register has succeeded on Meta's side (timestamp set
   // in the row). When false, the saved config is metadata-only and
   // Meta will silently drop every inbound event — that's the
@@ -97,12 +111,6 @@ export function WhatsAppConfig() {
   const fetchConfig = useCallback(async (acctId: string) => {
     setLoading(true);
     try {
-      // Load form values from Supabase (shows what's in DB).
-      // Switched from `user_id` (which would only match the row's
-      // original author) to `account_id` so every member of the
-      // account sees the same saved configuration. UNIQUE(account_id)
-      // on the table guarantees the .maybeSingle() return type
-      // remains accurate.
       const { data, error } = await supabase
         .from('whatsapp_config')
         .select('*')
@@ -115,14 +123,26 @@ export function WhatsAppConfig() {
 
       if (data) {
         setConfig(data);
+        setConnectionType(data.connection_type || 'meta');
+        setBaileysServerUrl(data.baileys_server_url || '');
+        setBaileysBroadcastDelay(data.baileys_broadcast_delay_sec || 5);
+        setBaileysStatus(data.baileys_status || 'disconnected');
+        setBaileysQrCode(data.baileys_qr_code || null);
+        setBaileysPhoneNumber(data.baileys_phone_number || null);
         setPhoneNumberId(data.phone_number_id || '');
         setWabaId(data.waba_id || '');
-        setAccessToken(MASKED_TOKEN);
+        setAccessToken(data.access_token ? MASKED_TOKEN : '');
         setVerifyToken('');
         setPin('');
         setTokenEdited(false);
       } else {
         setConfig(null);
+        setConnectionType('meta');
+        setBaileysServerUrl('');
+        setBaileysBroadcastDelay(5);
+        setBaileysStatus('disconnected');
+        setBaileysQrCode(null);
+        setBaileysPhoneNumber(null);
         setPhoneNumberId('');
         setWabaId('');
         setAccessToken('');
@@ -277,6 +297,89 @@ export function WhatsAppConfig() {
     }
   }
 
+  // Baileys polling effect for live QR code / status updates
+  useEffect(() => {
+    if (connectionType !== 'baileys' || !baileysServerUrl || !accountId) return;
+    if (baileysStatus !== 'connecting' && baileysStatus !== 'qr_ready') return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await getBaileysStatus(baileysServerUrl, accountId);
+        if (res) {
+          setBaileysStatus(res.status);
+          setBaileysQrCode(res.qrCode);
+          setBaileysPhoneNumber(res.phoneNumber);
+        }
+      } catch (err) {
+        console.warn('Polling Baileys status error:', err);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [connectionType, baileysServerUrl, accountId, baileysStatus]);
+
+  async function handleSaveBaileys() {
+    if (!baileysServerUrl.trim()) {
+      toast.error('Por favor ingresa la URL de tu servidor Baileys en Render');
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch('/api/whatsapp/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          connection_type: 'baileys',
+          baileys_server_url: baileysServerUrl,
+          baileys_broadcast_delay_sec: baileysBroadcastDelay,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || 'Error al guardar configuración de Baileys');
+      }
+      toast.success('Configuración de Baileys guardada correctamente');
+      if (accountId) await fetchConfig(accountId);
+    } catch (err: any) {
+      toast.error(err.message || 'Error al guardar Baileys');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleStartBaileys() {
+    if (!baileysServerUrl || !accountId) {
+      toast.error('Guarda primero la URL del servidor Baileys');
+      return;
+    }
+    setStartingBaileys(true);
+    try {
+      const webhookUrl = `${window.location.origin}/api/whatsapp/webhook/baileys`;
+      const res = await startBaileysSession(baileysServerUrl, accountId, webhookUrl);
+      toast.success('Sesión iniciada. Esperando código QR...');
+      if (res.qr) setBaileysQrCode(res.qr);
+      setBaileysStatus((res.status as any) || 'connecting');
+    } catch (err: any) {
+      toast.error(`Error al conectar con Baileys: ${err.message}`);
+    } finally {
+      setStartingBaileys(false);
+    }
+  }
+
+  async function handleDisconnectBaileys() {
+    if (!baileysServerUrl || !accountId) return;
+    try {
+      await disconnectBaileysSession(baileysServerUrl, accountId);
+      toast.success('Sesión de Baileys desconectada');
+      setBaileysStatus('disconnected');
+      setBaileysQrCode(null);
+      setBaileysPhoneNumber(null);
+      if (accountId) await fetchConfig(accountId);
+    } catch (err: any) {
+      toast.error(`Error al desconectar: ${err.message}`);
+    }
+  }
+
   async function handleTestConnection() {
     try {
       setTesting(true);
@@ -396,6 +499,164 @@ export function WhatsAppConfig() {
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
       {/* Main config form */}
       <div className="space-y-6">
+        {/* Provider Switcher */}
+        <Card className="border-border bg-card">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base text-foreground">Método de Conexión a WhatsApp</CardTitle>
+            <CardDescription className="text-xs text-muted-foreground">
+              Selecciona si deseas conectar mediante la API oficial de Meta Cloud o usando tu teléfono personal/business con WhatsApp Web (Baileys QR).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex gap-3">
+            <Button
+              type="button"
+              variant={connectionType === 'meta' ? 'default' : 'outline'}
+              onClick={() => setConnectionType('meta')}
+              className="flex-1"
+            >
+              Meta Cloud API (Oficial)
+            </Button>
+            <Button
+              type="button"
+              variant={connectionType === 'baileys' ? 'default' : 'outline'}
+              onClick={() => setConnectionType('baileys')}
+              className="flex-1"
+            >
+              WhatsApp Web (Baileys QR)
+            </Button>
+          </CardContent>
+        </Card>
+
+        {connectionType === 'baileys' ? (
+          <div className="space-y-6">
+            {/* Baileys Server Settings */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-foreground">Servidor de Baileys (Render / VPS)</CardTitle>
+                <CardDescription className="text-muted-foreground">
+                  Configura la dirección de tu microservicio `baileys-server` desplegado en Render.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label className="text-muted-foreground">URL del Servidor Baileys</Label>
+                  <Input
+                    placeholder="ej. https://wacrm-baileys.onrender.com"
+                    value={baileysServerUrl}
+                    onChange={(e) => setBaileysServerUrl(e.target.value)}
+                    className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    URL de tu microservicio independiente para Baileys.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-muted-foreground">Delimitador de envíos masivos (segundos entre mensajes)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={baileysBroadcastDelay}
+                    onChange={(e) => setBaileysBroadcastDelay(Number(e.target.value) || 5)}
+                    className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Tiempo de retardo aleatorio entre cada envío en difusiones masivas para evitar bloqueos.
+                  </p>
+                </div>
+
+                <Button
+                  onClick={handleSaveBaileys}
+                  disabled={saving}
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      Guardando...
+                    </>
+                  ) : (
+                    'Guardar Configuración Baileys'
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Baileys QR Code & Status Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-foreground">Estado y Conexión WhatsApp Web (QR)</CardTitle>
+                <CardDescription className="text-muted-foreground">
+                  Escanea el código QR desde la app móvil de WhatsApp para vincular este dispositivo.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-medium">Estado:</span>
+                  {baileysStatus === 'connected' ? (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                      <CheckCircle2 className="size-3.5" /> Conectado ({baileysPhoneNumber || 'WhatsApp'})
+                    </span>
+                  ) : baileysStatus === 'qr_ready' ? (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                      <AlertTriangle className="size-3.5" /> Código QR listo para escanear
+                    </span>
+                  ) : baileysStatus === 'connecting' ? (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                      <Loader2 className="size-3.5 animate-spin" /> Conectando...
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30">
+                      <XCircle className="size-3.5" /> Desconectado
+                    </span>
+                  )}
+                </div>
+
+                {baileysStatus !== 'connected' && (
+                  <div className="space-y-4">
+                    <Button
+                      onClick={handleStartBaileys}
+                      disabled={startingBaileys || !baileysServerUrl}
+                      className="w-full bg-primary text-primary-foreground"
+                    >
+                      {startingBaileys ? (
+                        <>
+                          <Loader2 className="size-4 animate-spin" />
+                          Generando QR...
+                        </>
+                      ) : (
+                        'Iniciar Sesión / Mostrar Código QR'
+                      )}
+                    </Button>
+
+                    {baileysQrCode && (
+                      <div className="text-center space-y-3 pt-2">
+                        <div className="p-3 bg-white inline-block rounded-xl shadow-lg border">
+                          <img src={baileysQrCode} alt="WhatsApp QR Code" className="size-64" />
+                        </div>
+                        <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                          Abre WhatsApp en tu teléfono &gt; Dispositivos vinculados &gt; Vincular dispositivo y escanea este código.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {baileysStatus === 'connected' && (
+                  <Button
+                    variant="destructive"
+                    onClick={handleDisconnectBaileys}
+                    className="w-full"
+                  >
+                    Desconectar WhatsApp Web
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        ) : (
+          <>
         {/* Corrupted-token reset banner */}
         {showResetBanner && (
           <Alert className="bg-amber-950/40 border-amber-600/40">
@@ -738,6 +999,8 @@ export function WhatsAppConfig() {
             </Button>
           )}
         </div>
+        </>
+        )}
       </div>
 
       {/* Setup Instructions Sidebar */}

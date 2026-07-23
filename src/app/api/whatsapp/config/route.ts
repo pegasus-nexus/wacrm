@@ -87,7 +87,7 @@ export async function GET() {
 
     const { data: config, error: configError } = await supabase
       .from('whatsapp_config')
-      .select('phone_number_id, access_token, status')
+      .select('*')
       .eq('account_id', accountId)
       .maybeSingle()
 
@@ -185,7 +185,64 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { phone_number_id, waba_id, access_token, verify_token, pin } = body
+    const {
+      connection_type = 'meta',
+      phone_number_id,
+      waba_id,
+      access_token,
+      verify_token,
+      pin,
+      baileys_server_url,
+      baileys_broadcast_delay_sec = 5,
+    } = body
+
+    if (connection_type === 'baileys') {
+      if (!baileys_server_url) {
+        return NextResponse.json(
+          { error: 'baileys_server_url is required for Baileys connection' },
+          { status: 400 }
+        )
+      }
+
+      const baileysRow = {
+        connection_type: 'baileys',
+        baileys_server_url,
+        baileys_broadcast_delay_sec: Number(baileys_broadcast_delay_sec) || 5,
+        updated_at: new Date().toISOString(),
+      }
+
+      const { data: existing } = await supabase
+        .from('whatsapp_config')
+        .select('id')
+        .eq('account_id', accountId)
+        .maybeSingle()
+
+      if (existing) {
+        const { error: updateErr } = await supabase
+          .from('whatsapp_config')
+          .update(baileysRow)
+          .eq('account_id', accountId)
+
+        if (updateErr) {
+          return NextResponse.json({ error: 'Failed to update Baileys configuration' }, { status: 500 })
+        }
+      } else {
+        const { error: insertErr } = await supabase
+          .from('whatsapp_config')
+          .insert({
+            account_id: accountId,
+            user_id: user.id,
+            status: 'disconnected',
+            ...baileysRow,
+          })
+
+        if (insertErr) {
+          return NextResponse.json({ error: 'Failed to save Baileys configuration' }, { status: 500 })
+        }
+      }
+
+      return NextResponse.json({ success: true, saved: true })
+    }
 
     if (!access_token || !phone_number_id) {
       return NextResponse.json(

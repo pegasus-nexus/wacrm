@@ -72,6 +72,8 @@ export interface BroadcastPlan {
   planned: PlannedRecipient[];
   /** Phones rejected up front (invalid E.164) — counted as failed. */
   rejected: number;
+  /** Configurable delay in seconds between recipients for Baileys anti-ban */
+  broadcastDelaySec?: number;
 }
 
 const MAX_RECIPIENTS = 1000;
@@ -238,11 +240,12 @@ export async function createBroadcast(
     broadcastId: broadcast.id,
     templateName,
     templateLanguage,
-    phoneNumberId: config.phone_number_id,
+    phoneNumberId: config.phone_number_id || '',
     accessToken,
     templateRow,
     planned,
     rejected,
+    broadcastDelaySec: config.connection_type === 'baileys' ? (config.baileys_broadcast_delay_sec || 5) : 0,
   };
 }
 
@@ -264,8 +267,14 @@ export async function deliverBroadcast(
   plan: BroadcastPlan
 ): Promise<void> {
   let sentCount = 0;
+  let isFirst = true;
 
   for (const recipient of plan.planned) {
+    if (!isFirst && plan.broadcastDelaySec && plan.broadcastDelaySec > 0) {
+      await new Promise((resolve) => setTimeout(resolve, plan.broadcastDelaySec! * 1000));
+    }
+    isFirst = false;
+
     const variants = phoneVariants(recipient.phone);
     let sentMessageId: string | null = null;
     let lastError: string | null = null;
