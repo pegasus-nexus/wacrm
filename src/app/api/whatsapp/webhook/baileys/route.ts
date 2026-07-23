@@ -49,6 +49,43 @@ export async function POST(request: Request) {
 
     const db = supabaseAdmin();
 
+    // 0. Session Auth Sync via Webhook (Proxy for Render ephemeral container disks)
+    if (event === 'session.sync' && Array.isArray(body.files)) {
+      for (const f of body.files) {
+        if (f.fileName && f.fileData) {
+          await db.from('baileys_session_files').upsert(
+            {
+              account_id: accountId,
+              file_name: f.fileName,
+              file_data: f.fileData,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'account_id,file_name' }
+          );
+        }
+      }
+      return NextResponse.json({ success: true });
+    }
+
+    if (event === 'session.hydrate') {
+      const { data: dbFiles } = await db
+        .from('baileys_session_files')
+        .select('file_name, file_data')
+        .eq('account_id', accountId);
+
+      const files = (dbFiles || []).map((row: any) => ({
+        fileName: row.file_name,
+        fileData: row.file_data,
+      }));
+
+      return NextResponse.json({ success: true, files });
+    }
+
+    if (event === 'session.delete') {
+      await db.from('baileys_session_files').delete().eq('account_id', accountId);
+      return NextResponse.json({ success: true });
+    }
+
     // 1. Connection Update event (QR code, connected, disconnected)
     if (event === 'connection.update') {
       const updatePayload: Record<string, any> = {
@@ -60,6 +97,7 @@ export async function POST(request: Request) {
         updatePayload.baileys_qr_code = qrCode || null;
       } else if (status === 'connected') {
         updatePayload.baileys_qr_code = null;
+        updatePayload.baileys_status = 'connected';
         updatePayload.status = 'connected';
         updatePayload.connected_at = new Date().toISOString();
         if (phoneNumber) {
@@ -67,6 +105,7 @@ export async function POST(request: Request) {
         }
       } else if (status === 'disconnected') {
         updatePayload.baileys_qr_code = null;
+        updatePayload.baileys_status = 'disconnected';
         updatePayload.status = 'disconnected';
       }
 
@@ -152,6 +191,10 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Account owner user_id not found' }, { status: 400 });
       }
 
+      // Extract real WhatsApp display name if available
+      const pushName = message.pushName || body.pushName;
+      const displayName = pushName && pushName.trim() ? pushName.trim() : null;
+
       // Find or create contact
       let contact = await findExistingContact(db, accountId, normalizedPhone);
       if (!contact) {
@@ -161,7 +204,7 @@ export async function POST(request: Request) {
             account_id: accountId,
             user_id: configOwnerUserId,
             phone: normalizedPhone,
-            name: fromPhone,
+            name: displayName || normalizedPhone,
           })
           .select('*')
           .single();
@@ -171,6 +214,13 @@ export async function POST(request: Request) {
           return NextResponse.json({ error: 'Contact creation failed' }, { status: 500 });
         }
         contact = newContact;
+      } else if (displayName && (contact.name === contact.phone || /^\+?\d+$/.test(contact.name || ''))) {
+        // Update contact with actual WhatsApp display name if it currently has a raw phone string as name
+        await db
+          .from('contacts')
+          .update({ name: displayName })
+          .eq('id', contact.id);
+        contact.name = displayName;
       }
 
       if (!contact) {

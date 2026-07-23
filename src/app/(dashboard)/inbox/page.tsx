@@ -216,6 +216,16 @@ function InboxPageInner() {
     checkConnection();
   }, []);
 
+  // Passive safety sync interval for Inbox list refresh
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        setResyncToken((prev) => prev + 1);
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Handle realtime message events
   const handleMessageEvent = useCallback(
     (event: { eventType: string; new: Message; old: Partial<Message> }) => {
