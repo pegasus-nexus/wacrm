@@ -16,6 +16,7 @@ ALTER TABLE whatsapp_config
   ADD COLUMN IF NOT EXISTS baileys_status TEXT DEFAULT 'disconnected' CHECK (baileys_status IN ('disconnected', 'connecting', 'qr_ready', 'connected')),
   ADD COLUMN IF NOT EXISTS baileys_qr_code TEXT,
   ADD COLUMN IF NOT EXISTS baileys_phone_number TEXT,
+  ADD COLUMN IF NOT EXISTS baileys_secret_token TEXT,
   ADD COLUMN IF NOT EXISTS baileys_broadcast_delay_sec INT DEFAULT 5 CHECK (baileys_broadcast_delay_sec >= 1 AND baileys_broadcast_delay_sec <= 60);
 
 -- Index for fast lookup by baileys_phone_number when routing webhooks

@@ -291,6 +291,7 @@ export interface WhatsAppConfig {
   baileys_status?: 'disconnected' | 'connecting' | 'qr_ready' | 'connected';
   baileys_qr_code?: string;
   baileys_phone_number?: string;
+  baileys_secret_token?: string;
   baileys_broadcast_delay_sec?: number;
 }
 

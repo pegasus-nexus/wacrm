@@ -193,6 +193,7 @@ export async function POST(request: Request) {
       verify_token,
       pin,
       baileys_server_url,
+      baileys_secret_token,
       baileys_broadcast_delay_sec = 5,
     } = body
 
@@ -204,11 +205,15 @@ export async function POST(request: Request) {
         )
       }
 
-      const baileysRow = {
+      const baileysRow: Record<string, any> = {
         connection_type: 'baileys',
         baileys_server_url,
         baileys_broadcast_delay_sec: Number(baileys_broadcast_delay_sec) || 5,
         updated_at: new Date().toISOString(),
+      }
+
+      if (baileys_secret_token) {
+        baileysRow.baileys_secret_token = baileys_secret_token;
       }
 
       const { data: existing } = await supabase

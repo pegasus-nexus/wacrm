@@ -78,6 +78,7 @@ export function WhatsAppConfig() {
   // Baileys state
   const [connectionType, setConnectionType] = useState<'meta' | 'baileys'>('meta');
   const [baileysServerUrl, setBaileysServerUrl] = useState('');
+  const [baileysSecretToken, setBaileysSecretToken] = useState('wacrm-baileys-secret-key');
   const [baileysBroadcastDelay, setBaileysBroadcastDelay] = useState(5);
   const [baileysStatus, setBaileysStatus] = useState<'disconnected' | 'connecting' | 'qr_ready' | 'connected'>('disconnected');
   const [baileysQrCode, setBaileysQrCode] = useState<string | null>(null);
@@ -125,6 +126,7 @@ export function WhatsAppConfig() {
         setConfig(data);
         setConnectionType(data.connection_type || 'meta');
         setBaileysServerUrl(data.baileys_server_url || '');
+        setBaileysSecretToken(data.baileys_secret_token || 'wacrm-baileys-secret-key');
         setBaileysBroadcastDelay(data.baileys_broadcast_delay_sec || 5);
         setBaileysStatus(data.baileys_status || 'disconnected');
         setBaileysQrCode(data.baileys_qr_code || null);
@@ -139,6 +141,7 @@ export function WhatsAppConfig() {
         setConfig(null);
         setConnectionType('meta');
         setBaileysServerUrl('');
+        setBaileysSecretToken('wacrm-baileys-secret-key');
         setBaileysBroadcastDelay(5);
         setBaileysStatus('disconnected');
         setBaileysQrCode(null);
@@ -304,7 +307,7 @@ export function WhatsAppConfig() {
 
     const interval = setInterval(async () => {
       try {
-        const res = await getBaileysStatus(baileysServerUrl, accountId);
+        const res = await getBaileysStatus(baileysServerUrl, accountId, baileysSecretToken);
         if (res) {
           setBaileysStatus(res.status);
           setBaileysQrCode(res.qrCode);
@@ -316,7 +319,7 @@ export function WhatsAppConfig() {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [connectionType, baileysServerUrl, accountId, baileysStatus]);
+  }, [connectionType, baileysServerUrl, baileysSecretToken, accountId, baileysStatus]);
 
   async function handleSaveBaileys() {
     if (!baileysServerUrl.trim()) {
@@ -331,6 +334,7 @@ export function WhatsAppConfig() {
         body: JSON.stringify({
           connection_type: 'baileys',
           baileys_server_url: baileysServerUrl,
+          baileys_secret_token: baileysSecretToken,
           baileys_broadcast_delay_sec: baileysBroadcastDelay,
         }),
       });
@@ -355,7 +359,7 @@ export function WhatsAppConfig() {
     setStartingBaileys(true);
     try {
       const webhookUrl = `${window.location.origin}/api/whatsapp/webhook/baileys`;
-      const res = await startBaileysSession(baileysServerUrl, accountId, webhookUrl);
+      const res = await startBaileysSession(baileysServerUrl, accountId, webhookUrl, baileysSecretToken);
       toast.success('Sesión iniciada. Esperando código QR...');
       if (res.qr) setBaileysQrCode(res.qr);
       setBaileysStatus((res.status as any) || 'connecting');
@@ -369,7 +373,7 @@ export function WhatsAppConfig() {
   async function handleDisconnectBaileys() {
     if (!baileysServerUrl || !accountId) return;
     try {
-      await disconnectBaileysSession(baileysServerUrl, accountId);
+      await disconnectBaileysSession(baileysServerUrl, accountId, baileysSecretToken);
       toast.success('Sesión de Baileys desconectada');
       setBaileysStatus('disconnected');
       setBaileysQrCode(null);
@@ -547,7 +551,21 @@ export function WhatsAppConfig() {
                     className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
                   />
                   <p className="text-xs text-muted-foreground">
-                    URL de tu microservicio independiente para Baileys.
+                    URL de tu microservicio independiente para Baileys en Render.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-muted-foreground">Clave Secreta del Servidor (BAILEYS_SECRET_TOKEN)</Label>
+                  <Input
+                    type="password"
+                    placeholder="ej. tu-token-secreto"
+                    value={baileysSecretToken}
+                    onChange={(e) => setBaileysSecretToken(e.target.value)}
+                    className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Debe coincidir exactamente con la variable <code className="text-primary font-mono text-[11px]">BAILEYS_SECRET_TOKEN</code> configurada en tu panel de Render.
                   </p>
                 </div>
 
