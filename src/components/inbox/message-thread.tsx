@@ -268,6 +268,15 @@ export function MessageThread({
   const conversationId = conversation?.id;
   const hasUnread = (conversation?.unread_count ?? 0) > 0;
 
+  // Track whether we've loaded messages for the current conversation.
+  // On initial conversation selection, show a loading spinner. On resync
+  // (resyncToken bumps from reconnect / tab-focus / 5s interval), refetch
+  // silently in the background without flashing the spinner.
+  const hasLoadedForConvRef = useRef(false);
+  useEffect(() => {
+    hasLoadedForConvRef.current = false;
+  }, [conversationId]);
+
   // Fetch messages whenever the selected conversation changes. Kept
   // separate from the unread-reset effect so that incoming messages
   // arriving while the thread is open don't trigger a full refetch —
@@ -279,7 +288,7 @@ export function MessageThread({
     let cancelled = false;
 
     (async () => {
-      setLoading(true);
+      if (!hasLoadedForConvRef.current) setLoading(true);
 
       const { data, error } = await supabase
         .from("messages")
@@ -296,6 +305,7 @@ export function MessageThread({
       }
 
       if (!cancelled) setLoading(false);
+      hasLoadedForConvRef.current = true;
     })();
 
     return () => {

@@ -342,8 +342,12 @@ function InboxPageInner() {
 
         // Update active conversation if it changed
         if (activeConversation && conv.id === activeConversation.id) {
+          // Suppress unread_count to 0 for the active conversation,
+          // matching the list logic — avoids a feedback loop where
+          // the server's unread_count bounces back to >0, triggers
+          // the reset effect, and fires another realtime UPDATE.
           setActiveConversation((prev) =>
-            prev ? { ...prev, ...conv } : prev
+            prev ? { ...prev, ...conv, unread_count: 0 } : prev
           );
         }
       }
