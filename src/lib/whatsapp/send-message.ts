@@ -453,9 +453,10 @@ export async function sendMessageToConversation(
     if (lastError) throw lastError;
   } catch (err) {
     const message =
-      err instanceof Error ? err.message : 'Unknown Meta API error';
-    console.error('[send-message] Meta send failed for all variants:', message);
-    throw new SendMessageError('meta_error', `Meta API error: ${message}`, 502);
+      err instanceof Error ? err.message : 'Unknown WhatsApp API error';
+    console.error('[send-message] WhatsApp send failed:', message);
+    const providerName = isBaileys ? 'Baileys' : 'Meta API';
+    throw new SendMessageError('whatsapp_send_error', `${providerName} error: ${message}`, 502);
   }
 
   if (workingPhone !== sanitizedPhone) {
