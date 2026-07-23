@@ -344,12 +344,18 @@ export async function sendMessageToConversation(
 
   const attempt = async (phone: string): Promise<string> => {
     if (isBaileys) {
-      const res = await sendBaileysMessage(config.baileys_server_url!, accountId, {
-        to: phone,
-        messageType,
-        contentText,
-        mediaUrl,
-      });
+      const res = await sendBaileysMessage(
+        config.baileys_server_url!,
+        accountId,
+        {
+          to: phone,
+          messageType,
+          contentText,
+          mediaUrl,
+          filename,
+        },
+        config.baileys_secret_token
+      );
       return res.whatsappMessageId;
     }
     if (messageType === 'template') {
