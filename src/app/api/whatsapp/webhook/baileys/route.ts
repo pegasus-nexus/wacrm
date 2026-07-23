@@ -22,6 +22,17 @@ function supabaseAdmin() {
   return _adminClient;
 }
 
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 200,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-baileys-secret',
+    },
+  });
+}
+
 export async function POST(request: Request) {
   try {
     const secret = request.headers.get('x-baileys-secret');
