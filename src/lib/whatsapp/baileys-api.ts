@@ -16,6 +16,7 @@ export interface SendBaileysMessageParams {
   messageType?: string;
   contentText?: string | null;
   mediaUrl?: string | null;
+  filename?: string | null;
 }
 
 export interface SendBaileysMessageResponse {
@@ -134,6 +135,68 @@ export async function sendBaileysMessage(
   if (!res.ok) {
     const errorText = await res.text();
     throw new Error(`Failed to send Baileys message (${res.status}): ${errorText}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * Send reaction emoji to a message via Baileys microservice
+ */
+export async function sendBaileysReaction(
+  serverUrl: string,
+  accountId: string,
+  params: { to: string; messageId: string; emoji: string },
+  secretToken: string = DEFAULT_SECRET
+): Promise<{ success: boolean }> {
+  const url = `${cleanUrl(serverUrl)}/api/messages/react`;
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-baileys-secret': secretToken,
+    },
+    body: JSON.stringify({
+      accountId,
+      ...params,
+    }),
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Failed to send Baileys reaction (${res.status}): ${errorText}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * Send presence update ("composing" or "paused") via Baileys microservice
+ */
+export async function sendBaileysPresence(
+  serverUrl: string,
+  accountId: string,
+  params: { to: string; presence?: 'composing' | 'paused' },
+  secretToken: string = DEFAULT_SECRET
+): Promise<{ success: boolean }> {
+  const url = `${cleanUrl(serverUrl)}/api/messages/presence`;
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-baileys-secret': secretToken,
+    },
+    body: JSON.stringify({
+      accountId,
+      ...params,
+    }),
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Failed to send Baileys presence (${res.status}): ${errorText}`);
   }
 
   return res.json();

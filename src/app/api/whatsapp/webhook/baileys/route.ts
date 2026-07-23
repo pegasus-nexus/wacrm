@@ -78,7 +78,44 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true });
     }
 
-    // 2. Message Upsert event (Inbound & Outbound sync)
+    // 2. Reaction event
+    if (event === 'messages.reaction' && body.reaction) {
+      const { messageId, emoji } = body.reaction;
+      const { data: targetMsg } = await db
+        .from('messages')
+        .select('id, conversation_id, conversations(account_id, contact_id)')
+        .eq('message_id', messageId)
+        .maybeSingle();
+
+      if (targetMsg) {
+        const conv = targetMsg.conversations as any;
+        if (conv?.account_id === accountId) {
+          const contactId = conv.contact_id;
+          if (!emoji) {
+            await db
+              .from('message_reactions')
+              .delete()
+              .eq('message_id', targetMsg.id)
+              .eq('actor_type', 'customer')
+              .eq('actor_id', contactId);
+          } else {
+            await db.from('message_reactions').upsert(
+              {
+                message_id: targetMsg.id,
+                conversation_id: targetMsg.conversation_id,
+                actor_type: 'customer',
+                actor_id: contactId,
+                emoji,
+              },
+              { onConflict: 'message_id,actor_type,actor_id' }
+            );
+          }
+        }
+      }
+      return NextResponse.json({ success: true });
+    }
+
+    // 3. Message Upsert event (Inbound & Outbound sync)
     if (event === 'messages.upsert' && message) {
       const fromPhone = message.from;
       const isFromMe = Boolean(message.fromMe);
@@ -195,6 +232,7 @@ export async function POST(request: Request) {
           sender_id: isFromMe ? configOwnerUserId : undefined,
           content_type: contentType,
           content_text: message.text?.body || null,
+          media_url: message.mediaUrl || null,
           message_id: message.id,
           status: isFromMe ? 'sent' : 'delivered',
         })

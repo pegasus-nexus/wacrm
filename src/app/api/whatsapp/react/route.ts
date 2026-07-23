@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { sendReactionMessage } from '@/lib/whatsapp/meta-api';
+import { sendBaileysReaction } from '@/lib/whatsapp/baileys-api';
 import { decrypt } from '@/lib/whatsapp/encryption';
 import { sanitizePhoneForMeta } from '@/lib/whatsapp/phone-utils';
 import {
@@ -108,10 +109,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // WhatsApp config + access token. Account-scoped post-multi-user.
+    // WhatsApp config. Account-scoped post-multi-user.
     const { data: config, error: configError } = await supabase
       .from('whatsapp_config')
-      .select('phone_number_id, access_token')
+      .select('*')
       .eq('account_id', accountId)
       .single();
 
@@ -122,25 +123,51 @@ export async function POST(request: Request) {
       );
     }
 
-    const accessToken = decrypt(config.access_token);
     const sanitizedPhone = sanitizePhoneForMeta(contact.phone);
 
-    try {
-      await sendReactionMessage({
-        phoneNumberId: config.phone_number_id,
-        accessToken,
-        to: sanitizedPhone,
-        targetMessageId: targetMessage.message_id,
-        emoji,
-      });
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : 'Unknown Meta API error';
-      console.error('[whatsapp/react] Meta send failed:', message);
-      return NextResponse.json(
-        { error: `Meta API error: ${message}` },
-        { status: 502 },
-      );
+    if (config.connection_type === 'baileys') {
+      if (!config.baileys_server_url) {
+        return NextResponse.json(
+          { error: 'Baileys server URL not configured.' },
+          { status: 400 },
+        );
+      }
+
+      try {
+        await sendBaileysReaction(
+          config.baileys_server_url,
+          accountId,
+          {
+            to: sanitizedPhone,
+            messageId: targetMessage.message_id,
+            emoji,
+          },
+          config.baileys_secret_token
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown Baileys error';
+        console.error('[whatsapp/react] Baileys send failed:', msg);
+        return NextResponse.json({ error: `Baileys error: ${msg}` }, { status: 502 });
+      }
+    } else {
+      const accessToken = decrypt(config.access_token);
+      try {
+        await sendReactionMessage({
+          phoneNumberId: config.phone_number_id,
+          accessToken,
+          to: sanitizedPhone,
+          targetMessageId: targetMessage.message_id,
+          emoji,
+        });
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : 'Unknown Meta API error';
+        console.error('[whatsapp/react] Meta send failed:', message);
+        return NextResponse.json(
+          { error: `Meta API error: ${message}` },
+          { status: 502 },
+        );
+      }
     }
 
     // Mirror into DB. Empty emoji = removal.
